@@ -4,11 +4,18 @@
 ///
 import 'dart:convert';
 
+import 'package:flutter/services.dart';
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart';
 import 'package:uuid/uuid.dart';
 
 import 'models.dart';
+
+const String _channelName = 'com.alexv525.com/aliyun_saf';
+const MethodChannel _channel = MethodChannel(_channelName);
+
+const String _METHOD_INIT = 'init';
+const String _METHOD_GET_SESSION = 'getSession';
 
 class AliyunSAF {
   factory AliyunSAF() => _instance;
@@ -17,34 +24,57 @@ class AliyunSAF {
 
   static late final AliyunSAF _instance = AliyunSAF._();
 
-  late final String _accessKeyId;
-  late final String _accessKeySecret;
+  late String _accessKeyId;
+  late String _accessKeySecret;
 
   String? _ip;
 
   /// 初始化方法，传入对应的 key 和 secret。
-  void init(String key, String secret) {
-    _accessKeyId = key;
-    _accessKeySecret = secret;
+  /// https://help.aliyun.com/document_detail/90998.html#title-jfj-1c5-iau
+  Future<void> init(String appKey, String accessKeyId, String accessKeySecret) {
+    _accessKeyId = accessKeyId;
+    _accessKeySecret = accessKeySecret;
+    return _channel.invokeMethod<void>(
+      _METHOD_INIT,
+      <String, dynamic>{'appKey': appKey},
+    );
+  }
+
+  /// 获取 Session (deviceToken)
+  /// https://help.aliyun.com/document_detail/90998.html#title-ao5-ca9-n10
+  Future<String> getSession() async {
+    final String? session = await _channel.invokeMethod(_METHOD_GET_SESSION);
+    if (session == null) {
+      throw NullThrownError();
+    }
+    return session;
   }
 
   /// 请求风险识别
   ///
   /// ip 初始化失败时不允许请求。
-  Future<SAFResponse<SAFLoginProData>?> request(String mobile) async {
+  Future<SAFResponse?> request(String mobile) async {
+    assert(mobile.isNotEmpty, 'Cannot request empty mobile.');
     if (_ip == null) {
       await updateIP();
     }
     if (_ip == null) {
       throw AssertionError(
-        'Failed to get IP address. Try again or Call updateIP again.',
+        'Failed to get IP address. Try again or call updateIP() method again.',
       );
     }
+    final String? session = await _channel.invokeMethod(_METHOD_GET_SESSION);
+    if (session == null) {
+      throw NullThrownError();
+    }
     final DateTime now = DateTime.now();
-    final Map<String, String> params = getParams(mobile, now);
+    final Map<String, String> params = getParams(
+      getServiceParameters(session, mobile, now),
+      now,
+    );
     final String canonicalizationString = canonicalize(params);
     final String signature = _sign('POST', canonicalizationString);
-    return _getData(getParams(mobile, now, needsEncode: false), signature);
+    return _getData(params, signature);
   }
 
   /// 获取 ip
@@ -56,7 +86,7 @@ class AliyunSAF {
     _ip = data['ip'] as String?;
   }
 
-  Future<SAFResponse<SAFLoginProData>?> _getData(
+  Future<SAFResponse?> _getData(
     Map<String, dynamic> params,
     String signature,
   ) async {
@@ -70,7 +100,7 @@ class AliyunSAF {
           queryParameters: params,
         ),
       );
-      return SAFResponse<SAFLoginProData>.fromJson(
+      return SAFResponse.fromJson(
         jsonDecode(res.body) as Map<String, dynamic>,
       );
     } catch (e) {
@@ -80,8 +110,13 @@ class AliyunSAF {
 
   /// 登录风险识别业务参数
   /// https://help.aliyun.com/document_detail/90966.html
-  Map<String, String> getServicesParameters(String mobile, DateTime now) {
+  Map<String, String> getServiceParameters(
+    String session,
+    String mobile,
+    DateTime now,
+  ) {
     return <String, String>{
+      'deviceToken': session,
       'ip': _ip!,
       'mobile': mobile,
       'operateTime': now.toUtc().millisecondsSinceEpoch.toString(),
@@ -93,16 +128,15 @@ class AliyunSAF {
   ///
   /// 注意此处已经将参数按照字母顺序排列，请勿随意更改顺序。
   Map<String, String> getParams(
-    String mobile,
-    DateTime now, {
-    bool needsEncode = true,
-  }) {
+    Map<String, String> serviceParameters,
+    DateTime now,
+  ) {
     return <String, String>{
       'AccessKeyId': _accessKeyId,
       'Action': 'ExecuteRequest',
       'Format': 'JSON',
       'Service': 'account_takeover_pro',
-      'ServiceParameters': jsonEncode(getServicesParameters(mobile, now)),
+      'ServiceParameters': jsonEncode(serviceParameters),
       'SignatureMethod': 'Hmac-SHA1',
       'SignatureNonce': const Uuid().v5(
         Uuid.NAMESPACE_URL,

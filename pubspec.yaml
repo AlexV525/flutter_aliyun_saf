@@ -10,5 +10,14 @@ environment:
 
 dependencies:
   crypto: ^3.0.1
+  flutter:
+    sdk: flutter
   http: ^0.13.2
   uuid: ^3.0.4
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: com.alexv525.aliyun_saf
+        pluginClass: AliyunSAFPlugin

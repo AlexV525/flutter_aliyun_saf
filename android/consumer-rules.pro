@@ -1,0 +1,2 @@
+-keep class net.security.device.api.** {*;}
+-dontwarn net.security.device.api.**

@@ -1,7 +1,7 @@
 name: aliyun_saf
 description: SAF HTTPS plugin for Aliyun.
 version: 0.1.0
-author: https://github.com/AlexV525
+# author: https://github.com/AlexV525
 homepage: https://github.com/AlexV525/flutter_aliyun_saf
 
 environment:
